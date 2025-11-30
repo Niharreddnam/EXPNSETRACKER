@@ -7,12 +7,15 @@
 
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💸</text></svg>">
 
+    <!-- Firebase SDKs -->
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 
+    <!-- Chart.js for graphs -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     
+    <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
     <style>
@@ -130,6 +133,8 @@
         }
         .stat-label { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.7; }
         .stat-number { font-size: 32px; font-weight: 700; margin-top: 5px; }
+        .text-green { color: #69f0ae; }
+        .text-red { color: #ff5252; }
 
         /* Badges */
         .badge-container { display: flex; gap: 10px; justify-content: center; margin-bottom: 20px; min-height: 40px; }
@@ -170,9 +175,9 @@
         /* Toast */
         #toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; }
         .toast { background: rgba(0,0,0,0.8); backdrop-filter: blur(10px); color: #fff; padding: 15px 25px; border-radius: 12px; margin-bottom: 10px; border-left: 5px solid; animation: fadeInUp 0.4s forwards; }
-        .toast.success { border-color: var(--success); } .toast.error { border-color: var(--danger); }
+        .toast.success { border-color: var(--success); } .toast.error { border-color: var(--danger); } .toast.info { border-color: var(--primary); }
 
-        /* Cache banner (keeps original look) */
+        /* Cache banner */
         #cache-banner { display: none; margin-bottom: 12px; padding: 10px 14px; border-radius: 12px; background: rgba(0,0,0,0.45); border-left: 4px solid var(--warning); color: #fff; font-size: 13px; text-align:center; }
 
         @media (max-width: 900px) {
@@ -349,24 +354,32 @@
     <a href="https://niharreddnam.vercel.app/" target="_blank">My Portfolio</a>
 </footer>
 
-<!-- Reference: original file used as base for modifications. -->
-<!-- :contentReference[oaicite:1]{index=1} -->
-
 <script>
+    // --- UPDATED FIREBASE CONFIGURATION ---
     const firebaseConfig = {
-        apiKey: "AIzaSyDTYIqJa8jKz9qaTvLoRQoVV77HvQw344k",
-        authDomain: "realtimetypewriter.firebaseapp.com",
-        databaseURL: "https://realtimetypewriter-default-rtdb.firebaseio.com",
-        projectId: "realtimetypewriter",
-        storageBucket: "realtimetypewriter.firebasestorage.app",
-        messagingSenderId: "224119059013",
-        appId: "1:224119059013:web:18650b540baea7c6f9692c",
-        measurementId: "G-YP2K0YG0FY"
+      apiKey: "AIzaSyBAflDXudkAdj7EY6ae8alqiDpoiKM3HYU",
+      authDomain: "expense-10ba6.firebaseapp.com",
+      projectId: "expense-10ba6",
+      storageBucket: "expense-10ba6.firebasestorage.app",
+      messagingSenderId: "892969697190",
+      appId: "1:892969697190:web:e60234c1b9e0b750a35967",
+      measurementId: "G-4BXKTDTWB0"
     };
 
     if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
     const auth = firebase.auth();
     const db = firebase.firestore();
+
+    // --- NEW: ENABLE OFFLINE PERSISTENCE (Fix for vanishing data) ---
+    db.enablePersistence()
+      .catch((err) => {
+          if (err.code == 'failed-precondition') {
+              console.log('Multiple tabs open, persistence can only be enabled in one tab at a a time.');
+          } else if (err.code == 'unimplemented') {
+              console.log('The current browser does not support all of the features required to enable persistence');
+          }
+      });
+    // ---------------------------------------------------------------
 
     let userId = null;
     let doughnutChart = null;
@@ -570,7 +583,7 @@
             showToast("Added!", "success");
         }).catch(e => {
             console.error("addExpense error", e);
-            showToast("Could not add expense", "error");
+            showToast("Could not add expense. Check network/rules.", "error");
         });
     }
     function deleteExpense(id) {
@@ -645,7 +658,7 @@
             try { saveCacheToLocalForUser(allExpensesData, inc, note, userId); } catch(e){console.warn(e);}
         }, err => {
             console.error("user doc snapshot error:", err);
-            showToast("Error reading profile data", "error");
+            // Silent fail on permission error for profile is okay, expenses are more important
         });
 
         // listen to expenses items and keep unsub handle
@@ -663,6 +676,11 @@
                 const d = doc.data();
                 const amt = d.amt || 0;
                 let date = d.createdAt?.toDate ? d.createdAt.toDate() : new Date();
+                // Fallback for pending writes (latency compensation)
+                if (!d.createdAt && doc.metadata.hasPendingWrites) {
+                    date = new Date();
+                }
+
                 allExpensesData.push({ id: doc.id, ...d, dateObj: date, dateStr: date.toLocaleDateString('en-IN', {month:'short', day:'numeric'}) });
 
                 if(date.getMonth() === currMo) {
@@ -699,7 +717,11 @@
             renderHistoryList(allExpensesData);
         }, err => {
             console.error("items snapshot error:", err);
-            showToast("Error reading expenses", "error");
+            if (err.code === 'permission-denied') {
+                showToast("Database locked. Update Firestore Rules in Console.", "error");
+            } else {
+                showToast("Error reading expenses", "error");
+            }
         });
     }
 
